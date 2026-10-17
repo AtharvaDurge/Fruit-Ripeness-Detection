@@ -1,14 +1,3 @@
-"""
-Strictly traditional pipeline (no neural nets, no learned classifiers):
-
- raw BGR -> resize -> Gaussian blur -> contrast stretch -> HSV S-channel -> Otsu mask
-         -> mask * raw image = segmented fruit
-         -> colour (HSV + Lab + hue-band fractions), texture (masked GLCM + LBP + edge density),
-            shape (mask moments) -> feature vector
-         -> 6 reference vectors (apple/banana/orange x ripe/unripe) = class mean vectors
-         -> Stage 1: which fruit      (Mahalanobis distance to the nearest reference vector)
-            Stage 2: ripe or unripe   (Mahalanobis distance to the 2 references of that fruit)
-"""
 import hashlib
 import os
 import cv2
