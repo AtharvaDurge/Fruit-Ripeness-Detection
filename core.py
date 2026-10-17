@@ -64,22 +64,19 @@ def _background_distance_mask(img):
     return m
 
 
-def segment(bgr, cutoff=None):
-    """cutoff=None -> Otsu on S channel, else fixed cutoff. Returns all intermediate images."""
+def segment(bgr):
+    """Otsu threshold on the S channel. Returns all intermediate images."""
     raw = cv2.resize(bgr, IMG_SIZE, interpolation=cv2.INTER_AREA)
     blur = cv2.GaussianBlur(raw, (5, 5), 1.0)
     stretched = contrast_stretch(blur)
     s = cv2.cvtColor(stretched, cv2.COLOR_BGR2HSV)[..., 1]
-    if cutoff is None:
-        thr, m = cv2.threshold(s, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    else:
-        thr, m = cv2.threshold(s, cutoff, 255, cv2.THRESH_BINARY)
+    thr, m = cv2.threshold(s, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     if _border_white(m) > 0.5:          # object must be white
         m = 255 - m
     m = _clean(m)
     frac = (m > 0).mean()
-    used = "S-channel Otsu" if cutoff is None else f"S cutoff {cutoff}"
-    if cutoff is None and (frac < 0.04 or frac > 0.92):   # implausible -> fallback
+    used = "S-channel Otsu"
+    if frac < 0.04 or frac > 0.92:   # implausible -> fallback
         m = _clean(_background_distance_mask(stretched))
         used = "fallback: background-colour distance"
     segmented = cv2.bitwise_and(raw, raw, mask=m)
@@ -189,8 +186,8 @@ def hue_hist(raw, bins=12):
     return list(hist / h.size)
 
 
-def extract(bgr, cutoff=None):
-    st = segment(bgr, cutoff)
+def extract(bgr):
+    st = segment(bgr)
     if (st["mask"] > 0).sum() < 100:
         raise ValueError("object not found")
     full = np.full(st["mask"].shape, 255, np.uint8)       # whole frame: robust when the mask fails

@@ -12,16 +12,41 @@ import core
 from core import FEATURE_NAMES, GROUPS, GROUP_OF, FRUITS, CONDS
 
 st.set_page_config(page_title="Fruit Ripeness Detection System", page_icon="🍎", layout="wide")
+st.markdown("""
+<style>
+html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { overflow-x: hidden !important; }
+.block-container { max-width: 1150px !important; margin: 0 auto; padding: 2rem 2rem 3rem 2rem !important; }
+h1 { text-align: center; padding-bottom: .2rem; }
+[data-testid="stMetric"] { background: rgba(128,128,128,.08); border: 1px solid rgba(128,128,128,.25);
+                           border-radius: 10px; padding: 12px 16px; }
+[data-testid="stImage"] img { border-radius: 8px; }
+[data-testid="stTabs"] button { font-size: 1rem; }
+.subtitle { text-align: center; opacity: .7; margin-bottom: 1.2rem; font-size: .95rem; }
+</style>
+""", unsafe_allow_html=True)
+
+
+def show_fig(fig):
+    """Show a matplotlib figure at its natural size (not stretched to the page width)."""
+    try:
+        st.pyplot(fig, width="content")                    # newer Streamlit
+    except TypeError:
+        try:
+            st.pyplot(fig, use_container_width=False)      # older Streamlit
+        except TypeError:
+            st.pyplot(fig)
+    plt.close(fig)
+
+
 st.title("🍊 Fruit Ripeness Detection System")
-st.caption("Strictly traditional image processing • HSV/Otsu segmentation • colour + texture + shape features • "
-           "two-stage reference-vector (Mahalanobis) matching")
+st.markdown('<div class="subtitle">Strictly traditional image processing • HSV/Otsu segmentation • '
+            'colour + texture + shape features • two-stage reference-vector (Mahalanobis) matching</div>',
+            unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- sidebar
 train_dir = st.sidebar.text_input("Training dataset directory", "dataset/dataset1/train")
 test_dir = st.sidebar.text_input("Test dataset directory (optional)", "dataset/dataset1/test")
 auto_tune = st.sidebar.checkbox("Auto-select feature groups + shrinkage per stage (CV on training set)", True)
-manual = st.sidebar.checkbox("Manual S-channel cutoff instead of Otsu (prediction tab)")
-cutoff = st.sidebar.slider("S cutoff", 0, 255, 60) if manual else None
 if st.sidebar.button("Reload dataset / clear cache"):
     st.cache_data.clear(); st.cache_resource.clear()
     import shutil; shutil.rmtree(".fruit_cache", ignore_errors=True)
@@ -30,6 +55,31 @@ if st.sidebar.button("Reload dataset / clear cache"):
 @st.cache_data(show_spinner=False)
 def load_features(path):
     return core.build_features(path)
+
+
+@st.cache_data(show_spinner=False)
+def best_sample_paths(df, n_try=40):
+    """For every class, look at up to n_try images and return the one whose mask is cleanest:
+    compact (high solidity), not touching the border, a sensible size, and lying on real image edges."""
+    out = {}
+    for cat, g in df.groupby("category"):
+        best, best_score = g.path.iloc[0], -1e9
+        for p in g.path.sample(min(n_try, len(g)), random_state=0):
+            img = cv2.imread(p)
+            if img is None:
+                continue
+            s = core.segment(img)
+            gray = cv2.cvtColor(s["raw"], cv2.COLOR_BGR2GRAY).astype(np.float32)
+            grad = np.hypot(cv2.Sobel(gray, cv2.CV_32F, 1, 0), cv2.Sobel(gray, cv2.CV_32F, 0, 1))
+            edge = cv2.morphologyEx(s["mask"], cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)) > 0
+            align = grad[edge].mean() / (grad.mean() + 1e-6) if edge.any() else 0.0
+            size_ok = 0.08 < s["area_frac"] < 0.65
+            score = (2.0 if s["reliable"] else 0.0) + (0.5 if size_ok else 0.0) + s["solidity"] \
+                    + min(align, 3.0) / 3.0 - s["border_touch"]
+            if score > best_score:
+                best, best_score = p, score
+        out[cat] = best
+    return out
 
 
 @st.cache_resource(show_spinner=False)
@@ -69,7 +119,7 @@ with tab1:
     if up:
         img = cv2.imdecode(np.frombuffer(up.read(), np.uint8), 1)
         try:
-            vec, s = core.extract(img, cutoff)
+            vec, s = core.extract(img)
         except Exception as e:
             st.error(f"Could not process the image: {e}"); st.stop()
         r = clf.predict_one(vec)
@@ -81,14 +131,6 @@ with tab1:
             st.info(f"⚠️ The S-channel mask looks unreliable for this photo (solidity {s['solidity']:.2f}, touches border "
                     f"{s['border_touch']:.0%}) — typical when fruit and leaves are both saturated. The classifier "
                     "therefore leans on whole-image features where the training data says that is more accurate.")
-        st.subheader("Image-processing pipeline")
-        cols = st.columns(5)
-        rgb = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
-        for c, (im, cap) in zip(cols, [(rgb(s["raw"]), "1. Resized"), (rgb(s["stretched"]), "2. Blur + contrast stretch"),
-                                      (s["s"], "3. Saturation channel"),
-                                      (s["mask"], f"4. Binary mask ({s['method']}, thr={s['thr']:.0f})"),
-                                      (rgb(s["segmented"]), "5. Segmented (mask × image)")]):
-            c.image(im, caption=cap, use_container_width=True, clamp=True)
         a, b = st.columns(2)
         a.subheader("Stage 1 – distance to each fruit's reference vectors")
         a.bar_chart(pd.Series(r["d_fruit"]))
@@ -106,29 +148,31 @@ with tab2:
     c1, c2 = st.columns(2)
     c1.dataframe(cc); c2.bar_chart(cc.set_index("category"))
     st.subheader("Sample segmentation per class")
+    st.caption("For each class, the cleanest segmentation among up to 40 images is shown (auto-selected).")
+    best_paths = best_sample_paths(df_all)
     fig, ax = plt.subplots(len(df_all.category.unique()), 3, figsize=(7, 2.1 * df_all.category.nunique()))
     for i, (cat, g) in enumerate(df_all.groupby("category")):
-        s = core.segment(cv2.imread(g.path.iloc[0]))
+        s = core.segment(cv2.imread(best_paths[cat]))
         for j, (im, t) in enumerate([(cv2.cvtColor(s["raw"], cv2.COLOR_BGR2RGB), "raw"), (s["mask"], "mask"),
                                      (cv2.cvtColor(s["segmented"], cv2.COLOR_BGR2RGB), "segmented")]):
             ax[i, j].imshow(im, cmap="gray" if im.ndim == 2 else None); ax[i, j].axis("off")
             if i == 0: ax[i, j].set_title(t)
         ax[i, 0].text(-8, 128, cat, ha="right", va="center", fontsize=8)
-    st.pyplot(fig)
+    show_fig(fig)
     grp = st.selectbox("Feature group", list(GROUPS))
-    fig, ax = plt.subplots(figsize=(11, 8))
+    fig, ax = plt.subplots(figsize=(9, 7))
     sns.heatmap(df_all[GROUPS[grp]].corr(), cmap="coolwarm", vmin=-1, vmax=1, ax=ax)
-    st.pyplot(fig)
+    show_fig(fig)
     feat = st.selectbox("Feature distribution by class", FEATURE_NAMES)
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=(9, 4))
     sns.boxplot(x="category", y=feat, data=df_all, ax=ax); plt.xticks(rotation=45)
-    st.pyplot(fig)
+    show_fig(fig)
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
     Z = PCA(2).fit_transform(StandardScaler().fit_transform(df_all[FEATURE_NAMES]))
     fig, ax = plt.subplots(figsize=(7, 6))
     sns.scatterplot(x=Z[:, 0], y=Z[:, 1], hue=df_all.category, s=18, ax=ax); ax.set_title("PCA of feature vectors")
-    st.pyplot(fig)
+    show_fig(fig)
 
 # ---------------------------------------------------------------- performance
 with tab3:
@@ -151,7 +195,7 @@ with tab3:
         sns.heatmap(confusion_matrix(yt, yp, labels=labs), annot=True, fmt="d", cmap="Blues",
                     xticklabels=labs, yticklabels=labs, ax=ax)
         ax.set_xlabel("predicted"); ax.set_ylabel("true")
-        st.pyplot(fig)
+        show_fig(fig)
         st.text(classification_report(yt, yp, zero_division=0))
     if len(sel_table):
         st.subheader("Feature-group selection (5-fold CV on the training data only)")
