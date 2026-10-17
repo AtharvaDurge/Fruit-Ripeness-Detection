@@ -254,8 +254,6 @@ dataset/
 | 🍎 Apple | `apple`, `apples` |
 | 🍌 Banana | `banana`, `bananas` |
 | 🍊 Orange | `orange`, `oranges` |
-| 🟢 Unripe | `raw`, `unripe`, `green` |
-| 🟠 Ripe | `ripe` |
 
 Supported image formats: `.jpg`, `.jpeg`, `.png`, `.bmp`, `.webp`.
 
