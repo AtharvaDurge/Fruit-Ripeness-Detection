@@ -3,13 +3,13 @@
 # 🍎 🍌 🍊 Fruit Ripeness Detection System
 
 **Is it an apple, a banana or an orange — and is it ripe?**
-Answered with classical image processing alone. No neural networks, no black boxes.
+Answered with traditional image processing alone. Every step is a hand-written, explainable operation.
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-Image%20Processing-5C3EE8?logo=opencv&logoColor=white)
 ![scikit-image](https://img.shields.io/badge/scikit--image-Features-orange)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white)
-![Approach](https://img.shields.io/badge/Approach-No%20Deep%20Learning-success)
+![Approach](https://img.shields.io/badge/Approach-Traditional%20Image%20Processing-success)
 
 </div>
 
@@ -22,7 +22,7 @@ Give the system a photo of an **apple, banana or orange** and it answers two que
 1. **Which fruit is it?**
 2. **Is it ripe or unripe?**
 
-It does this with handcrafted **colour, texture and shape features** and a **two-stage reference-vector classifier**. Every decision can be traced back to a distance between feature vectors, so the whole system is fully explainable. An interactive **Streamlit dashboard** covers prediction, exploratory data analysis (EDA) and evaluation.
+It uses a **traditional image processing** approach: preprocessing, HSV/Otsu segmentation, morphology, handcrafted **colour, texture and shape features**, and **template matching** against class reference vectors. Every decision can be traced back to a distance between feature vectors, so the whole system is fully explainable. An interactive **Streamlit dashboard** shows every stage of the pipeline for each uploaded image.
 
 ### ⚡ At a glance
 
@@ -30,10 +30,11 @@ It does this with handcrafted **colour, texture and shape features** and a **two
 |---|---|
 | **Fruits** | Apple · Banana · Orange |
 | **Output** | Fruit type + ripe / unripe |
+| **Approach** | Traditional image processing |
 | **Segmentation** | HSV saturation channel + Otsu thresholding |
-| **Features** | 108 handcrafted features in 5 groups |
-| **Classifier** | Two-stage nearest-reference-vector, shrunk Mahalanobis distance |
-| **Evaluation** | Unseen test images, confusion matrices, cross-validated feature selection |
+| **Features** | 108 handcrafted features in 6 groups |
+| **Matching** | Nearest reference vector (template matching), Euclidean distance on standardised features |
+| **Reference data** | Train folder only (no test split) |
 | **Interface** | Streamlit dashboard |
 
 ---
@@ -57,14 +58,14 @@ It does this with handcrafted **colour, texture and shape features** and a **two
 
 ## ✨ Highlights
 
-- 🧠 **Strictly traditional pipeline.** HSV/Otsu segmentation, GLCM and LBP texture, shape descriptors. Nothing is learned by a neural network.
-- 🪜 **Two-stage classification.** Stage 1 identifies the fruit. Stage 2 decides ripe vs. unripe using only that fruit's references.
-- 🔢 **108 handcrafted features** across five groups: fruit colour, fruit texture, shape, whole-image colour and whole-image texture.
-- 🛡️ **Robust to imperfect masks.** Whole-image features act as a safety net when the fruit cannot be separated from the background, for example green fruit among green leaves.
-- 🤖 **Automatic feature-group selection** for each stage, using cross-validation on the training data only.
-- ✅ **Honest evaluation** on images the model has never seen (a separate test folder, or a stratified hold-out split).
-- 🖥️ **Interactive dashboard** with prediction, EDA, performance metrics and reference vectors.
-- 🔄 **Dataset-agnostic.** Switch datasets from the sidebar, with no code changes.
+- 🧠 **Traditional image processing pipeline.** Resize, Gaussian blur, contrast stretching, HSV/Otsu segmentation, morphological cleaning, GLCM and LBP texture, and shape descriptors. No neural networks, no learned weights, no scikit-learn.
+- 📚 **Reference vectors from sample images.** The 6 class reference vectors are the mean feature vectors of the training images, and the scaling statistics come from the same images. Everything else is fixed, hand-written image processing.
+- 🎯 **Single nearest-vector decision.** The closest of the 6 class reference vectors gives both the fruit and its ripeness.
+- 🔢 **108 handcrafted features** across six groups: fruit colour, shape, fruit texture, whole-image colour, hue histogram and whole-image texture.
+- 🌍 **Mask-independent features.** The whole-image groups (D, E, F) do not depend on the segmentation mask.
+- 🛡️ **Reliability check.** Solidity, border contact and area fraction flag masks that look wrong, and the app shows a warning.
+- 🖥️ **Interactive dashboard** showing all 8 pipeline stages, distances to each class and the full feature vector.
+- 🔄 **Dataset-agnostic.** Switch the train folder from the sidebar, with no code changes.
 
 ---
 
@@ -75,64 +76,67 @@ flowchart LR
     A[📷 Photo] --> B[1. Preprocessing<br/>resize · blur · contrast stretch]
     B --> C[2. Segmentation<br/>HSV S-channel · Otsu · clean mask]
     C --> D[3. Feature extraction<br/>108 features]
-    D --> E[Stage 1<br/>Which fruit?]
-    E --> F[Stage 2<br/>Ripe or unripe?]
-    F --> G[✅ Result]
+    D --> E[Template matching<br/>6 reference vectors]
+    E --> F[✅ Fruit + ripeness]
 ```
 
 ### 1️⃣ Preprocessing
 
 | Step | Detail | Purpose |
 |---|---|---|
-| **Resize** | 256 × 256 | Comparable features and fast processing |
-| **Gaussian blur** | 5×5 kernel, σ = 1 | Suppresses noise before thresholding |
-| **Contrast stretching** | 2nd–98th percentile → 0–255, same range for all channels | Normalises dull or bright photos without shifting hue |
+| **Resize** | Plain 256 × 256 | Comparable features and fast processing |
+| **Gaussian blur** | 5×5 kernel, σ = 1 | Suppresses small noise before thresholding |
+| **Contrast stretching** | 2nd–98th percentile → 0–255, same range for all channels | Makes the image clearer without shifting hue |
 
 > The stretched image is used **only to build the mask**. All features are measured on the resized original, so true colours are preserved.
 
 ### 2️⃣ Segmentation
 
-1. Convert to **HSV** and take the **saturation (S) channel**.
-2. Apply **Otsu thresholding** to get a binary mask.
-3. Make sure the object is white (invert if the border is mostly white).
-4. Clean the mask: morphological opening and closing, hole filling, keep the largest connected component.
-5. If the mask is implausible (< 4 % or > 92 % of the image), fall back to a Lab-space distance-from-border-colour mask.
-6. **Segmented fruit = mask × original image.**
-7. Erode the mask by 2 px (the *core mask*) so blended edge pixels don't pollute colour and texture statistics.
-8. A reliability check (solidity, border contact, area fraction) flags masks that look wrong.
+1. Convert the preprocessed image to **HSV** and take the **saturation (S) channel**.
+2. Apply **Otsu thresholding**, which finds the best threshold from the saturation histogram and turns every pixel white (255) or black (0) to give a binary mask.
+3. **Polarity check:** invert the mask if more than half of its border pixels are white, so the object is white.
+4. Clean the mask: morphological opening, closing, hole filling, then keep the largest connected component.
+5. **Segmented fruit = mask × original image.**
+6. Erode the cleaned mask by 2 px to get the *core mask*, so blended edge pixels don't pollute colour and texture statistics.
+7. A reliability check (solidity, border contact, area fraction) flags masks that look wrong.
+
+The outputs passed on are the resized original image, the core mask and the cleaned mask (used for shape).
 
 ### 3️⃣ Feature extraction
 
 Each image becomes a **108-dimensional feature vector** (details in the next section).
 
-### 4️⃣ Training
+### 4️⃣ Building the reference vectors
 
-- Build **6 reference vectors**, the mean feature vector of each class.
-- Estimate a **shrunk Mahalanobis** distance.
-- Select the best feature groups for each stage by cross-validation.
+- Extract the 108 features of every image in the train folder.
+- Average them per class to get **6 reference vectors**.
+- **Standardise** with the mean and standard deviation of all training image vectors.
+- Save everything to `prototypes.npz`.
 
 ### 5️⃣ Prediction
 
-- **Stage 1:** the nearest reference vector gives the fruit.
-- **Stage 2:** the ripe vs. unripe reference of that fruit gives the ripeness.
+- Extract the 108 features of the uploaded image and standardise them the same way.
+- Compute the Euclidean distance to each of the 6 reference vectors.
+- The nearest one wins, and its class name (for example `apple_ripe`) gives both the fruit and the ripeness.
 
 ---
 
 ## 🧬 Feature Set
 
-Each image is converted into a **108-dimensional feature vector** in five groups.
+Each image is converted into a **108-dimensional feature vector** in six groups.
 
 | Group | Features | Measured on |
 |---|:---:|---|
-| 🎨 **1. Fruit colour** | 18 | Fruit only |
-| 🔍 **2. Fruit texture** | 25 | Fruit only |
-| 📐 **3. Shape** | 10 | Binary mask |
-| 🌍 **4. Global colour** | 30 | Whole image |
-| 🌐 **5. Global texture** | 25 | Whole image |
+| 🎨 **A. Fruit colour** | 18 | Fruit only (core mask) |
+| 📐 **B. Shape** | 10 | Cleaned binary mask |
+| 🔍 **C. Fruit texture** | 25 | Fruit only (core mask) |
+| 🌍 **D. Global colour** | 18 | Whole image |
+| 🌈 **E. Hue histogram** | 12 | Whole image |
+| 🌐 **F. Global texture** | 25 | Whole image |
 | **Total** | **108** | |
 
 <details>
-<summary><b>🎨 Group 1: Fruit colour (18)</b></summary>
+<summary><b>🎨 Group A: Fruit colour (18)</b></summary>
 
 | Features | Count | Notes |
 |---|:---:|---|
@@ -145,7 +149,14 @@ Each image is converted into a **108-dimensional feature vector** in five groups
 </details>
 
 <details>
-<summary><b>🔍 Group 2: Fruit texture (25)</b></summary>
+<summary><b>📐 Group B: Shape (10)</b></summary>
+
+Area fraction, normalised perimeter, circularity, aspect ratio (minimum-area rotated rectangle), eccentricity, solidity, extent and Hu moments 1–3, all computed from the cleaned binary mask.
+
+</details>
+
+<details>
+<summary><b>🔍 Group C: Fruit texture (25)</b></summary>
 
 | Features | Count | Notes |
 |---|:---:|---|
@@ -153,57 +164,46 @@ Each image is converted into a **108-dimensional feature vector** in five groups
 | **LBP histogram** | 10 | Uniform local binary patterns (P = 8, R = 1) |
 | **Edge density** | 1 | Canny edge fraction inside the fruit, which captures spots and blemishes |
 
-</details>
-
-<details>
-<summary><b>📐 Group 3: Shape (10)</b></summary>
-
-Area fraction, normalised perimeter, circularity, aspect ratio (minimum-area rotated rectangle), eccentricity, solidity, extent and Hu moments 1–3.
+Pipeline: raw image → grayscale → core mask → normalise intensities → GLCM, LBP and edge density.
 
 </details>
 
 <details>
-<summary><b>🌍 Group 4: Global colour (30)</b></summary>
+<summary><b>🌍 Group D: Global colour (18)</b></summary>
 
-The Group 1 colour features computed over the **whole frame**, plus a 12-bin hue histogram.
+The Group A colour features computed over the **whole frame** (full mask, all pixels white).
 
 </details>
 
 <details>
-<summary><b>🌐 Group 5: Global texture (25)</b></summary>
+<summary><b>🌈 Group E: Hue histogram (12)</b></summary>
 
-The Group 2 texture features computed over the **whole frame**.
+Raw image → HSV → the hue range (0°–360°) split into **12 bins** of 30°, computed over the whole image and normalised by the pixel count.
+
+</details>
+
+<details>
+<summary><b>🌐 Group F: Global texture (25)</b></summary>
+
+The Group C texture features computed over the **whole frame** (full mask).
 
 </details>
 
 > [!NOTE]
-> **Why global features?** In orchard-style photos, green fruit and green leaves are equally saturated, so an S-channel threshold cannot isolate the fruit. Whole-image features still describe the scene and give the classifier something reliable. When masks are good, the fruit-only groups can be selected instead.
+> **Why global features?** They don't depend on the segmentation mask, so they still describe the scene when the fruit cannot be separated from the background. The trade-off is that a strongly coloured background (blue sky, wooden table) also feeds into them.
 
 ---
 
 ## 🎯 Classification Method
 
 ### 📌 Reference vectors
-For each of the **6 classes** (apple / banana / orange × ripe / unripe), the **mean feature vector** of its training images is stored as that class's reference vector (its prototype).
+For each of the **6 classes** (apple / banana / orange × ripe / unripe), the **mean feature vector** of its training images is stored as that class's reference vector (a template). These are then standardised using the mean and standard deviation of all training image vectors, and saved in `prototypes.npz`.
 
-### 📏 Distance metric: shrunk Mahalanobis
-1. Features are z-scored.
-2. A **pooled within-class covariance** matrix is estimated.
-3. The covariance is **shrunk towards the identity** by a factor α, for numerical stability with many features.
-4. Distance = Mahalanobis distance to the reference vector, which accounts for feature scale and correlation.
-
-### 🪜 Two stages
-
-| Stage | Question | How it decides |
-|---|---|---|
-| **Stage 1** | Which fruit? | A fruit's distance is the smaller of its ripe and unripe reference distances. The nearest fruit wins. |
-| **Stage 2** | Ripe or unripe? | Only the two references of the predicted fruit are compared, with features standardised using that fruit's own statistics. A softmax over the negative squared distances gives a ripeness probability. |
-
-### 🤖 Automatic feature-group selection
-For each stage, all **31 combinations** of the 5 feature groups are scored with **5-fold stratified cross-validation on the training data only**. The best combination is kept (fewer groups win ties), and α is then tuned over `{0.02, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8}`.
-
-> [!IMPORTANT]
-> The test set is **never** used for selection or tuning.
+### 📏 Distance metric: Euclidean
+1. The uploaded image's 108 features are standardised with the same mean and standard deviation.
+2. The **Euclidean distance** to each of the 6 reference vectors is computed.
+3. The **nearest** reference vector wins, and its class name gives both the fruit and the ripeness.
+4. The **margin** shown in the app is `1 − (nearest distance ÷ second-nearest distance)`. It shows how clearly one class beat the runner-up and is not a probability.
 
 ---
 
@@ -212,15 +212,14 @@ For each stage, all **31 combinations** of the 5 feature groups are scored with 
 ```
 FruitRipeness/
 ├── app.py              # Streamlit dashboard (front end)
-├── main.py             # Core pipeline: segmentation, features, classifier, evaluation
+├── core.py             # Core pipeline: segmentation, features, reference vectors, matching
+├── prototypes.npz      # Auto-generated reference vectors (not tracked by Git)
 ├── requirements.txt    # Python dependencies
 ├── README.md
 ├── .gitignore
-├── dataset/            # Your image data (not tracked by Git)
-│   └── dataset1/
-│       ├── train/
-│       └── test/
-└── .fruit_cache/       # Auto-generated feature cache (not tracked by Git)
+└── dataset/            # Your image data (not tracked by Git)
+    └── dataset1/
+        └── train/
 ```
 
 > If your backend module has a different file name, make sure the `import` line at the top of `app.py` matches it.
@@ -234,17 +233,16 @@ The loader reads labels from **folder names**:
 ```
 dataset/
 └── dataset1/
-    ├── train/
-    │   ├── apples/
-    │   │   ├── raw/      (or unripe/)
-    │   │   └── ripe/
-    │   ├── banana/
-    │   │   ├── raw/
-    │   │   └── ripe/
-    │   └── orange/
-    │       ├── raw/
-    │       └── ripe/
-    └── test/             # optional, same structure
+    └── train/
+        ├── apples/
+        │   ├── raw/      (or unripe/)
+        │   └── ripe/
+        ├── banana/
+        │   ├── raw/
+        │   └── ripe/
+        └── orange/
+            ├── raw/
+            └── ripe/
 ```
 
 **Recognised folder names** (case-insensitive)
@@ -254,10 +252,12 @@ dataset/
 | 🍎 Apple | `apple`, `apples` |
 | 🍌 Banana | `banana`, `bananas` |
 | 🍊 Orange | `orange`, `oranges` |
+| 🟢 Unripe | `raw`, `unripe`, `green` |
+| 🟡 Ripe | `ripe` |
 
 Supported image formats: `.jpg`, `.jpeg`, `.png`, `.bmp`, `.webp`.
 
-If no `test` folder is found, the app automatically uses a **stratified 80/20 hold-out split** of the training folder.
+Only the train folder is used. There is no test folder and no train/test split.
 
 ---
 
@@ -282,7 +282,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Dependencies:** `numpy`, `opencv-python`, `scikit-image`, `scikit-learn`, `scipy`, `pandas`, `matplotlib`, `seaborn`, `joblib`, `streamlit`.
+**Dependencies:** `numpy`, `opencv-python`, `scikit-image`, `scipy`, `pandas`, `streamlit`.
 
 Place your dataset in the `dataset/` folder following the [layout above](#️-dataset-layout).
 
@@ -294,9 +294,10 @@ Place your dataset in the `dataset/` folder following the [layout above](#️-da
 streamlit run app.py
 ```
 
-The dashboard opens in your browser. On the **first run** the app extracts features from every image and caches them in `.fruit_cache/`, so later launches are fast. It then builds the reference vectors and, if enabled, selects the best feature groups for each stage.
+The dashboard opens in your browser.
 
-**To classify an image:** open the **Predict** tab and upload a photo.
+1. In the sidebar, check the **Train folder** path and click **Build / rebuild reference vectors**. The app extracts features from every training image, builds the 6 reference vectors and saves them to `prototypes.npz`. On later launches the saved file is loaded automatically.
+2. Open the **Predict + pipeline** tab and upload a photo.
 
 ---
 
@@ -305,15 +306,13 @@ The dashboard opens in your browser. On the **first run** the app extracts featu
 > [!TIP]
 > You do **not** need to change any code. Everything is controlled from the sidebar.
 
-1. Put the new dataset in the project, for example `dataset/dataset2/`, with `train/` (and optionally `test/`) using the [same folder structure](#️-dataset-layout).
-2. In the sidebar, set:
-   - **Training dataset directory** → `dataset/dataset2/train`
-   - **Test dataset directory (optional)** → `dataset/dataset2/test`
-3. Click **Reload dataset / clear cache** (recommended when switching datasets).
+1. Put the new dataset in the project, for example `dataset/dataset2/`, with a `train/` folder using the [same folder structure](#️-dataset-layout).
+2. In the sidebar, set **Train folder** → `dataset/dataset2/train`.
+3. Click **Build / rebuild reference vectors**.
 
-The app re-extracts features, rebuilds the reference vectors and re-runs feature selection for the new data. Absolute paths (for example `D:/data/fruits/train`) also work, and paths are resolved relative to the folder where you ran `streamlit run`.
+The app re-extracts features and rebuilds the reference vectors for the new data. Absolute paths (for example `D:/data/fruits/train`) also work, and paths are resolved relative to the folder where you ran `streamlit run`.
 
-To change the **default** paths shown when the app opens, edit the two `st.sidebar.text_input` lines near the top of `app.py`.
+To change the **default** path shown when the app opens, edit the `st.sidebar.text_input` line near the top of `app.py`.
 
 ---
 
@@ -321,35 +320,35 @@ To change the **default** paths shown when the app opens, edit the two `st.sideb
 
 | Tab | What it shows |
 |---|---|
-| **🔍 Predict** | Upload a photo → predicted fruit and ripeness with probability, the feature groups used by each stage, an unreliable-mask warning when relevant, distance charts for both stages, and the full feature vector |
-| **📊 EDA** | Class counts, the cleanest segmentation example per class (raw / mask / segmented), feature-group correlation heatmaps, per-class boxplots for any feature, and a PCA scatter plot |
-| **📈 Performance** | Stage 1, Stage 2 and overall accuracy on unseen images, confusion matrices and classification reports, and the cross-validation table behind feature-group selection |
-| **📐 Reference vectors** | The six class-mean reference vectors across all features |
+| **🔍 Predict + pipeline** | Upload a photo → predicted fruit and ripeness with the margin, an unreliable-segmentation warning when relevant, all 8 pipeline stages (resized, blur, contrast stretch, S-channel, Otsu, cleaned mask, core mask, segmented fruit), the distance to each class vector, the 12-bin hue histogram, and the full 108-feature vector |
+| **🧮 Reference vectors** | The number of images averaged per class and the six standardised reference vectors across all 108 features |
 
-**Sidebar controls:** training and test dataset paths, an automatic feature-group selection toggle, and a reload / clear-cache button.
+**Sidebar controls:** the train folder path and a button to build or rebuild the reference vectors.
 
 ---
 
 ## 📊 Evaluation
 
-All reported metrics are computed on **images not used for training** (your `test` folder, or a stratified hold-out split).
+There is no separate test set, so the app does not compute an accuracy score. A result is checked by uploading an image and inspecting the output:
 
-| Metric | Meaning |
+| What to check | Meaning |
 |---|---|
-| **Stage 1 accuracy** | Fruit identified correctly |
-| **Stage 2 accuracy (true fruit)** | Ripeness correct when the fruit is given, which isolates Stage 2 |
-| **Stage 2 accuracy (pipeline)** | Ripeness correct using Stage 1's prediction |
-| **Overall 6-class accuracy** | Both fruit and ripeness correct |
+| **Predicted class** | Fruit and ripeness of the nearest reference vector |
+| **Margin** | How clearly the nearest class beat the second-nearest. A low margin means the image is not clearly closer to one class |
+| **Distance chart** | Distance to all 6 class vectors. When all bars are similar, no class is a good match |
+| **Reliability warning** | Shown when solidity ≤ 0.80, border contact ≥ 25 % or the mask area is outside 3–80 % of the image |
+| **Pipeline panels** | Checking the Otsu and cleaned masks shows directly whether the fruit was segmented correctly |
 
-Confusion matrices and per-class precision / recall / F1 are available in the **Performance** tab.
+> [!WARNING]
+> Segmentation uses Otsu on the saturation channel, so the method works best with **a single fruit against a plain background**. Photos with trays or piles of fruit, or backgrounds that are more saturated than the fruit (sky, leaves), can give a wrong mask and therefore a wrong result.
 
 ### 🏆 Results
 
-*Fill in with your own run.*
+*Fill in with your own manual tests.*
 
-| Dataset | Stage 1 | Stage 2 | Overall |
-|---|:---:|:---:|:---:|
-| dataset1 | XX.X % | XX.X % | XX.X % |
+| Image | Actual | Predicted | Correct? |
+|---|---|---|:---:|
+| `example_1.jpg` | Apple – ripe | XX | XX |
 
 ---
 
@@ -360,7 +359,4 @@ Confusion matrices and per-class precision / recall / F1 are available in the **
 | **Language** | Python |
 | **Image processing** | OpenCV, scikit-image, SciPy |
 | **Numerics / data** | NumPy, pandas |
-| **Parallelism** | joblib |
-| **Metrics / validation** | scikit-learn (cross-validation splits, accuracy, confusion matrices; the classifier itself is plain NumPy) |
-| **Visualisation** | Matplotlib, seaborn |
 | **Front end** | Streamlit |
