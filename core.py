@@ -20,17 +20,10 @@ GLCM_LEVELS, GLCM_DIST = 32, [1, 3]
 # ----------------------------------------------------------------------------
 # PREPROCESSING (steps 1-4)
 # ----------------------------------------------------------------------------
-def resize_square(bgr, size=IMG_SIZE):                      # step 2: 256 x 256
+def resize_square(bgr, size=IMG_SIZE):                      # step 2: plain 256 x 256
     h, w = bgr.shape[:2]
-    scale = size / max(h, w)
-    nh, nw = max(1, round(h * scale)), max(1, round(w * scale))
-    interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
-    small = cv2.resize(bgr, (nw, nh), interpolation=interp)
-    border = np.concatenate([small[0], small[-1], small[:, 0], small[:, -1]])
-    colour = [int(c) for c in np.median(border, axis=0)]
-    top, left = (size - nh) // 2, (size - nw) // 2
-    return cv2.copyMakeBorder(small, top, size - nh - top, left, size - nw - left,
-                              cv2.BORDER_CONSTANT, value=colour)
+    interp = cv2.INTER_AREA if max(h, w) > size else cv2.INTER_LINEAR
+    return cv2.resize(bgr, (size, size), interpolation=interp)
 
 
 def contrast_stretch(img, pct=(2, 98)):                     # step 4
@@ -210,7 +203,7 @@ def extract(bgr):
 
 
 # ----------------------------------------------------------------------------
-# CLASS FEATURE VECTORS (steps 12-13)
+# REFERENCE (CLASS) FEATURE VECTORS (steps 12-13)
 # ----------------------------------------------------------------------------
 def list_images(base):
     rows = []
@@ -228,25 +221,36 @@ def list_images(base):
 
 def build_prototypes(train_dir, save_path="prototypes.npz", progress=None):
     """Step 12: average the 108-feature vectors of each class  ->  6 class vectors.
-       Step 13: standardise (scale) those vectors."""
+       Step 13: standardise using the mean/std of ALL training image vectors."""
     df = list_images(train_dir)
-    per = {k: [] for k in CLASSES}
+    if df.empty:
+        raise ValueError(f"No images found in '{train_dir}'. Expected <fruit>/<ripe|raw|unripe>/image folders.")
+    vecs, labels = [], []
     for i, row in enumerate(df.itertuples(index=False)):
         try:
-            feats, _ = extract(cv2.imread(row.path))
-            per[f"{row.true_fruit}_{row.true_cond}"].append([feats[n] for n in FEATURE_NAMES])
+            img = cv2.imread(row.path)
+            if img is not None:
+                feats, _ = extract(img)
+                vecs.append([feats[n] for n in FEATURE_NAMES])
+                labels.append(f"{row.true_fruit}_{row.true_cond}")
         except Exception:
             pass
         if progress:
             progress((i + 1) / len(df))
-    missing = [k for k, v in per.items() if not v]
+    if not vecs:
+        raise ValueError("No usable training images.")
+    X, labels = np.array(vecs), np.array(labels)
+    missing = [k for k in CLASSES if not (labels == k).any()]
     if missing:
         raise ValueError(f"No usable train images for: {missing}")
-    counts = np.array([len(per[k]) for k in CLASSES])
-    raw = np.array([np.mean(per[k], axis=0) for k in CLASSES])     # 6 x 108
-    mu, sd = raw.mean(axis=0), raw.std(axis=0)
+
+    mu, sd = X.mean(axis=0), X.std(axis=0)
     sd[sd < 1e-9] = 1.0
-    proto = dict(classes=np.array(CLASSES), raw=raw, mu=mu, sd=sd, scaled=(raw - mu) / sd, counts=counts)
+    Z = (X - mu) / sd
+    counts = np.array([(labels == k).sum() for k in CLASSES])
+    raw = np.array([X[labels == k].mean(axis=0) for k in CLASSES])      # 6 x 108 (averages)
+    scaled = np.array([Z[labels == k].mean(axis=0) for k in CLASSES])  # 6 x 108 (standardised)
+    proto = dict(classes=np.array(CLASSES), raw=raw, mu=mu, sd=sd, scaled=scaled, counts=counts)
     np.savez(save_path, **proto)
     return proto
 
@@ -268,21 +272,3 @@ def classify(feats, proto):
     margin = float(1 - d[order[0]] / (d[order[1]] + 1e-9))
     return dict(fruit=fruit, condition=cond, confidence=margin,
                 distances={str(c): float(v) for c, v in zip(proto["classes"], d)})
-
-
-def evaluate_folder(base, proto, progress=None):
-    df = list_images(base)
-    if df.empty:
-        return df
-    out = []
-    for i, row in enumerate(df.itertuples(index=False)):
-        try:
-            feats, seg = extract(cv2.imread(row.path))
-            res = classify(feats, proto)
-            out.append(dict(row._asdict(), pred_fruit=res["fruit"], pred_cond=res["condition"],
-                            confidence=res["confidence"], reliable=seg["reliable"]))
-        except Exception:
-            pass
-        if progress:
-            progress((i + 1) / len(df))
-    return pd.DataFrame(out)
