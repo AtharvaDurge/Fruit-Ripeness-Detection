@@ -10,8 +10,6 @@ st.markdown("""
 <style>
 .block-container { max-width: 1150px !important; margin: 0 auto; padding: 2rem 2rem 3rem 2rem !important; }
 h1 { text-align: center; padding-bottom: .2rem; }
-[data-testid="stMetric"] { background: rgba(128,128,128,.08); border: 1px solid rgba(128,128,128,.25);
-                           border-radius: 10px; padding: 12px 16px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -22,34 +20,32 @@ def rgb(img):
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
+# ---------------------------------------------------------------- sidebar: reference images
+st.sidebar.header("Reference (train) images")
+train = st.sidebar.text_input("Train folder", "dataset/dataset1/train")
+
 if "proto" not in st.session_state:
     st.session_state.proto = core.load_prototypes()
 
-tab0, tab1, tab2 = st.tabs(["🧮 Build class vectors", "🔍 Predict + pipeline", "📊 Score on a folder"])
+if st.sidebar.button("Build / rebuild reference vectors"):
+    bar = st.sidebar.progress(0.0)
+    try:
+        st.session_state.proto = core.build_prototypes(train, progress=bar.progress)
+        st.sidebar.success("Reference vectors built and saved to prototypes.npz")
+    except Exception as e:
+        st.sidebar.error(str(e))
 
-# ---------------------------------------------------------------- build (steps 12-13)
-with tab0:
-    train = st.text_input("Train folder", "dataset/dataset1/train")
-    if st.button("Build 6 class feature vectors"):
-        bar = st.progress(0.0)
-        try:
-            st.session_state.proto = core.build_prototypes(train, progress=bar.progress)
-            st.success("Class vectors built and saved to prototypes.npz")
-        except Exception as e:
-            st.error(str(e))
-    p = st.session_state.proto
-    if p is not None:
-        st.subheader("Images averaged per class")
-        st.dataframe(pd.Series(p["counts"], index=p["classes"], name="images"))
-        st.subheader("Standardised class vectors (6 x 108)")
-        st.dataframe(pd.DataFrame(p["scaled"], index=p["classes"], columns=core.FEATURE_NAMES))
+proto = st.session_state.proto
+if proto is None:
+    st.sidebar.warning("No reference vectors yet. Click the button above first.")
+
+tab1, tab2 = st.tabs(["🔍 Predict + pipeline", "🧮 Reference vectors"])
 
 # ---------------------------------------------------------------- predict
 with tab1:
-    proto = st.session_state.proto
-    if proto is None:
-        st.warning("Build the class vectors first (first tab).")
     up = st.file_uploader("Upload an apple / banana / orange image", type=["jpg", "jpeg", "png", "bmp", "webp"])
+    if up and proto is None:
+        st.warning("Build the reference vectors first (sidebar).")
     if up and proto is not None:
         img = cv2.imdecode(np.frombuffer(up.read(), np.uint8), 1)
         if img is None:
@@ -94,30 +90,12 @@ with tab1:
                                        "group": [core.GROUP_OF[n] for n in core.FEATURE_NAMES]},
                                       index=core.FEATURE_NAMES))
 
-# ---------------------------------------------------------------- evaluate
+# ---------------------------------------------------------------- reference vectors
 with tab2:
-    folder = st.text_input("Folder to score", "dataset/dataset1/test")
-    if st.button("Run on folder"):
-        if st.session_state.proto is None:
-            st.error("Build the class vectors first.")
-        else:
-            bar = st.progress(0.0)
-            df = core.evaluate_folder(folder, st.session_state.proto, progress=bar.progress)
-            if df.empty:
-                st.error("No usable images found in that folder.")
-            else:
-                fa = (df.true_fruit == df.pred_fruit).mean()
-                ca = (df.true_cond == df.pred_cond).mean()
-                oa = ((df.true_fruit == df.pred_fruit) & (df.true_cond == df.pred_cond)).mean()
-                m = st.columns(4)
-                m[0].metric("Images scored", len(df))
-                m[1].metric("Fruit accuracy", f"{fa:.2%}")
-                m[2].metric("Ripeness accuracy", f"{ca:.2%}")
-                m[3].metric("Both correct", f"{oa:.2%}")
-                st.subheader("Fruit confusion table")
-                st.dataframe(pd.crosstab(df.true_fruit, df.pred_fruit))
-                st.subheader("Ripeness confusion table")
-                st.dataframe(pd.crosstab(df.true_cond, df.pred_cond))
-                st.subheader("Wrong predictions")
-                wrong = df[(df.true_fruit != df.pred_fruit) | (df.true_cond != df.pred_cond)]
-                st.dataframe(wrong[["filename", "true_fruit", "pred_fruit", "true_cond", "pred_cond", "reliable"]])
+    if proto is None:
+        st.info("Not built yet.")
+    else:
+        st.subheader("Images averaged per class")
+        st.dataframe(pd.Series(proto["counts"], index=proto["classes"], name="images"))
+        st.subheader("Standardised reference vectors (6 x 108)")
+        st.dataframe(pd.DataFrame(proto["scaled"], index=proto["classes"], columns=core.FEATURE_NAMES))
