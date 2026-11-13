@@ -119,7 +119,7 @@ After a winner is chosen:
 
 - **Segmented fruit = mask × original image.**
 - A **core mask** (mask eroded by 2 iterations of a 3×3 kernel) is made so blended edge pixels don't pollute colour and texture statistics.
-- A **reliability check** flags the mask as unreliable unless solidity > 0.80, border contact < 25 % and area is between 2 % and 85 % of the image.
+- A **reliability check** flags the mask as unreliable unless solidity > 0.55, border contact < 25 % and area is between 2 % and 85 % of the image.
 
 ### 3️⃣ Feature extraction
 
