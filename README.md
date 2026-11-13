@@ -1,8 +1,9 @@
-<div align="center">
+ <div align="center">
 
 # 🍎 🍌 🍊 Fruit Ripeness Detection System
 
 **Is it an apple, a banana or an orange, and is it ripe?**
+
 Answered with classical image processing alone. No neural networks, no training, no black boxes.
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
@@ -10,6 +11,18 @@ Answered with classical image processing alone. No neural networks, no training,
 ![scikit-image](https://img.shields.io/badge/scikit--image-Features-orange)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white)
 ![Approach](https://img.shields.io/badge/Approach-No%20ML%20%2F%20No%20Training-success)
+
+</div>
+
+---
+
+## 🌐 Live Demo
+
+<div align="center">
+
+### 🚀 [Try RipenessIQ – Live Application](https://ripenessiq.streamlit.app/)
+
+Explore the application by uploading an image of an apple, banana or orange and see the complete image processing and ripeness detection pipeline in action.
 
 </div>
 
