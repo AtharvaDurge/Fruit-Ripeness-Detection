@@ -234,7 +234,7 @@ Ripenessdetection/
 ├── requirements.txt    # Python dependencies
 ├── README.md
 ├── .gitignore
-└── dataset/            # Your image data (not tracked by Git)
+└── dataset/            # Your image data
     └── dataset1/
         ├── apples/
         ├── banana/

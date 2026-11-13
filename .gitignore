@@ -1,4 +1,7 @@
-dataset/
+dataset/*
+!dataset/dataset1/
+
+# Other exclusions
 .fruit_cache/
 __pycache__/
 *.pyc
