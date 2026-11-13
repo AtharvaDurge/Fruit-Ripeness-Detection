@@ -146,7 +146,7 @@ def segment(bgr):
     solidity = max(props, key=lambda p: p.area).solidity if props else 0.0
     touch = _border_white(m)
     frac = float((m > 0).mean())
-    reliable = bool(solidity > 0.80 and touch < 0.25 and 0.02 < frac < 0.85)
+    reliable = bool(solidity > 0.55 and touch < 0.25 and 0.02 < frac < 0.85)
     return dict(raw=raw, blur=blur, stretched=stretched, s=s, cand_raw=cand_raw, method=method,
                 uniform_bg=uniform, thr=float(thr), mask=m, core=core, segmented=segmented,
                 solidity=float(solidity), border_touch=float(touch), area_frac=frac, reliable=reliable)
