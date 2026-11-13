@@ -110,7 +110,7 @@ flowchart TD
     C --> E
     D --> F
     E --> F[Clean: open · close · fill holes<br/>keep components ≥ 20% of biggest]
-    F --> G[Convex-hull fill<br/>only for compact blobs, solidity > 0.8]
+    F --> G[Convex-hull fill<br/>only for compact blobs, solidity > 0.55]
     G --> H[Score: solidity − border contact − size penalty]
     H --> I[Best mask wins]
 ```
