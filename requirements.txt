@@ -1,5 +1,5 @@
 numpy
-opencv-python
+opencv-python-headless
 scikit-image
 scikit-learn
 scipy
@@ -7,3 +7,4 @@ pandas
 matplotlib
 joblib
 streamlit
+Pillow
