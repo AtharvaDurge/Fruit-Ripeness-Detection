@@ -246,7 +246,7 @@ def render(proto):
 
     if mode == "Folder on this computer":
         folder = st.text_input("Folder path (the whole dataset, or just one folder like apples/ripe)",
-                               "dataset/test")
+                               "dataset/dataset1")
         go = st.button("Run evaluation")
         if go:
             if not os.path.isdir(folder):
