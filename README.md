@@ -1,4 +1,4 @@
- <div align="center">
+<div align="center">
 
 # 🍎 🍌 🍊 Fruit Ripeness Detection System
 
@@ -37,7 +37,7 @@ Upload a photo of an **apple, banana or orange** and the system answers two ques
 
 It works by turning every image into a **108-number feature vector** (colour, shape, texture) and comparing it with **six class-average vectors** built from your reference images. Nothing is trained: there are no weights, no gradient descent and no fitted model. Every decision is simply a distance between two vectors, so you can always see *why* the system answered what it did.
 
-A **Streamlit dashboard** shows each step of the pipeline on your uploaded image, so the whole process is visible, not hidden.
+A **Streamlit dashboard** shows each step of the pipeline on your uploaded image, and a built-in **Evaluation tab** lets you run a whole batch of labelled images through the same pipeline to get accuracy, confusion matrices, precision / recall / F1 and a gallery of wrong predictions.
 
 ### ⚡ At a glance
 
@@ -49,7 +49,8 @@ A **Streamlit dashboard** shows each step of the pipeline on your uploaded image
 | **Features** | 108 handcrafted features in 6 groups |
 | **Classifier** | Two-stage nearest-reference-vector, group-weighted distance |
 | **Reference data** | One dataset folder, averaged into 6 class vectors, saved to `prototypes.npz` |
-| **Interface** | Streamlit dashboard |
+| **Evaluation** | Batch testing from a folder or multi-file upload, with metrics, confusion matrices and EDA |
+| **Interface** | Streamlit dashboard with 3 tabs |
 
 ---
 
@@ -59,6 +60,7 @@ A **Streamlit dashboard** shows each step of the pipeline on your uploaded image
 - [🔬 How It Works](#-how-it-works)
 - [🧬 Feature Set](#-feature-set)
 - [🎯 Classification Method](#-classification-method)
+- [📊 Evaluation](#-evaluation)
 - [📁 Project Structure](#-project-structure)
 - [🗂️ Dataset Layout](#️-dataset-layout)
 - [🚀 Installation](#-installation)
@@ -77,6 +79,7 @@ A **Streamlit dashboard** shows each step of the pipeline on your uploaded image
 - 🎭 **Multi-candidate segmentation.** Three different masks are generated and scored. The one with the best solidity and the least border contact is used, so it copes with both plain studio backgrounds and cluttered scenes.
 - 🛡️ **Self-aware.** If the mask looks wrong, shape features are switched off automatically and the dashboard shows a warning instead of silently trusting a bad result.
 - 🔍 **Fully explainable.** The dashboard shows all 8 pipeline images, the distance to every class vector and all 108 extracted features.
+- 📊 **Built-in evaluation.** Test on a whole folder or many uploaded images and get accuracy, confusion matrices, per-class precision / recall / F1, a wrong-prediction gallery and EDA charts.
 - 🔄 **Dataset-agnostic.** Point the sidebar at any folder with the right layout and rebuild. No code changes.
 - 📦 **Zero training time.** Building the reference vectors is just feature extraction plus averaging.
 
@@ -106,7 +109,9 @@ flowchart LR
 
 ### 2️⃣ Segmentation
 
-Three candidate masks are produced, cleaned and scored:
+First, the border pixels of the image are examined to decide whether the background is **plain** (studio photo) or **cluttered** (tree, basket, table). This only adjusts how the candidates are scored: the background-distance mask gets a bonus on plain backgrounds, and the warm-hue mask gets a bonus on cluttered ones.
+
+Three candidate masks are then produced, cleaned and scored:
 
 | Candidate | Idea | Best for |
 |---|---|---|
@@ -123,15 +128,15 @@ flowchart TD
     C --> E
     D --> F
     E --> F[Clean: open · close · fill holes<br/>keep components ≥ 20% of biggest]
-    F --> G[Convex-hull fill<br/>only for compact blobs, solidity > 0.55]
-    G --> H[Score: solidity − border contact − size penalty]
+    F --> G[Convex-hull fill<br/>only for compact blobs, solidity > 0.8]
+    G --> H[Score: solidity − border contact − size penalty + background bonus]
     H --> I[Best mask wins]
 ```
 
 After a winner is chosen:
 
 - **Segmented fruit = mask × original image.**
-- A **core mask** (mask eroded by 2 iterations of a 3×3 kernel) is made so blended edge pixels don't pollute colour and texture statistics.
+- A **core mask** (mask eroded by 2 iterations of a 3×3 kernel) is made so blended edge pixels don't pollute colour and texture statistics. If the eroded mask becomes too small, the full mask is used instead.
 - A **reliability check** flags the mask as unreliable unless solidity > 0.55, border contact < 25 % and area is between 2 % and 85 % of the image.
 
 ### 3️⃣ Feature extraction
@@ -193,7 +198,7 @@ Each image produces **108 features** in six groups.
 <details>
 <summary><b>📐 Shape features (10), group B</b></summary>
 
-Area fraction, normalised perimeter, circularity, aspect ratio (minimum-area rotated rectangle), eccentricity, solidity, extent and Hu moments 1–3.
+Area fraction, normalised perimeter, circularity, aspect ratio (minimum-area rotated rectangle), eccentricity, solidity, extent and Hu moments 1–3 (log-scaled).
 
 </details>
 
@@ -230,10 +235,38 @@ Each feature's weight is its **group weight divided by √(group size)**, so a l
 | **Stage 1** | Which fruit? | A fruit's distance is the smaller of its ripe and unripe distances. The nearest fruit wins. | Shape (1.5), colour (1.0), hue histogram (1.0) |
 | **Stage 2** | Ripe or unripe? | Only the two references of the predicted fruit are compared. | Colour (1.5), hue histogram (1.5), global colour (1.0) |
 
-The **margin** shown in the app is `1 − (nearest distance ÷ second-nearest distance)`. A larger margin means a more decisive answer.
+The **margin** shown in the app is `1 − (nearest distance ÷ second-nearest distance)`. The fruit margin compares the best and second-best fruit; the ripeness margin compares the ripe and unripe references of the chosen fruit. A larger margin means a more decisive answer.
 
 > [!TIP]
 > If the segmentation is flagged as unreliable, the shape group is given weight 0 in both stages, so a bad mask cannot mislead the fruit decision.
+
+---
+
+## 📊 Evaluation
+
+The **Evaluation** tab (`eva.py`) runs a whole batch of labelled images through exactly the same pipeline as the single-image tab (`core.extract` + `core.classify`) and compares the predictions with the real labels.
+
+### Choosing the images
+
+| Mode | How it works |
+|---|---|
+| **Folder on this computer** | Type a folder path (the whole dataset, or just one folder like `apples/ripe`) and click **Run evaluation** |
+| **Upload images** | Select many images at once. Labels are read from the file names, or you can force one label for all uploaded images from a drop-down |
+
+### Where the real label comes from
+
+Nothing needs to be typed in. The label is read from the **file name first, then the folders above it**, using the same recognised names as the dataset layout (`apple`, `banana`, `orange`, `raw`, `unripe`, `green`, `ripe`). For example, `Apple_Ripe_test_12.jpg` is read as *apple, ripe*. Images whose fruit or ripeness cannot be determined are skipped and counted.
+
+### What you get
+
+| Sub-tab | Contents |
+|---|---|
+| **📈 Performance** | Images tested, overall accuracy (fruit **and** ripeness both right), fruit accuracy, ripeness accuracy (measured only where the fruit was named correctly), a fruit confusion matrix, a 6-class confusion matrix, precision / recall / F1 per class, accuracy split by mask reliability, and average margins for right vs. wrong answers |
+| **❌ Wrong predictions** | A gallery of misclassified images (original on the left, segmented fruit on the right) with real vs. predicted class, filterable by real class |
+| **🗂️ EDA** | Images per class, example images for each class and the average hue histogram per class |
+
+> [!WARNING]
+> There is no train / test split: the reference vectors are built from the dataset folder. If more than half of the evaluated images were part of that folder, the app shows a warning because the accuracy will look better than it really is. For an honest result, evaluate on images that were **not** used to build the reference vectors (for example a held-out test folder).
 
 ---
 
@@ -241,8 +274,9 @@ The **margin** shown in the app is `1 − (nearest distance ÷ second-nearest di
 
 ```
 Ripenessdetection/
-├── app.py              # Streamlit dashboard (front end)
+├── app.py              # Streamlit dashboard (front end, 3 tabs)
 ├── core.py             # Pipeline: segmentation, features, reference vectors, classifier
+├── eva.py              # Evaluation tab: batch testing, metrics, confusion matrices, EDA
 ├── prototypes.npz      # Auto-generated reference vectors (rebuilt from the sidebar)
 ├── requirements.txt    # Python dependencies
 ├── README.md
@@ -286,7 +320,7 @@ dataset/
 
 Supported image formats: `.jpg`, `.jpeg`, `.png`, `.bmp`, `.webp`.
 
-There is **no train / test split**: all images in the folder are used to build the reference vectors. Every one of the six classes needs at least one usable image.
+When building the reference vectors there is **no train / test split**: all images in the folder are used. Every one of the six classes needs at least one usable image. The [Evaluation tab](#-evaluation) can additionally read labels from file names, so a separate test set can be flat folders of files such as `Apple_Ripe_01.jpg`.
 
 ---
 
@@ -311,7 +345,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Dependencies:** `numpy`, `opencv-python`, `scikit-image`, `scipy`, `pandas`, `streamlit`.
+**Dependencies:** `numpy`, `opencv-python`, `scikit-image`, `scipy`, `pandas`, `matplotlib`, `scikit-learn`, `streamlit`.
+
+> `scikit-learn` is used **only** by the Evaluation tab to compute the confusion matrices and precision / recall / F1. The classifier itself uses no machine learning.
 
 Place your dataset in the `dataset/` folder following the [layout above](#️-dataset-layout).
 
@@ -326,6 +362,7 @@ streamlit run app.py
 1. In the sidebar, check the **Dataset folder** (default `dataset/dataset1`).
 2. Click **Build / rebuild reference vectors**. This extracts features from every image and saves `prototypes.npz`.
 3. Open the **Predict + pipeline** tab and upload a photo.
+4. Open the **Evaluation** tab to test a whole batch of labelled images.
 
 On later launches the saved `prototypes.npz` is loaded automatically, so you only rebuild when your dataset changes. If the feature definitions in `core.py` change (`FEATURE_VERSION`), the old file is ignored and you are asked to rebuild.
 
@@ -343,6 +380,7 @@ To change the default path shown when the app opens, edit the `st.sidebar.text_i
 |---|---|
 | **🔍 Predict + pipeline** | Upload a photo and get the fruit, the ripeness and both margins. Below that, the 8 pipeline images (resized → blur → contrast stretch → S-channel → best candidate mask → cleaned mask → core mask → segmented fruit), whether the background was plain or cluttered, distance charts for both stages, the hue histogram and a table of all 108 features |
 | **🧮 Reference vectors** | How many images were averaged for each class, and the six standardised reference vectors across all 108 features |
+| **📊 Evaluation** | Batch testing on a folder or uploaded images: accuracy metrics, confusion matrices, precision / recall / F1, wrong-prediction gallery and EDA charts (see [Evaluation](#-evaluation)) |
 
 **Sidebar:** dataset folder path and the build / rebuild button.
 
@@ -360,7 +398,7 @@ Everything that controls the decision lives at the top of `core.py`, so it is ea
 | `IMG_SIZE` | Working resolution for all processing |
 | `GLCM_LEVELS`, `GLCM_DIST` | Texture quantisation and pixel distances |
 
-Weight changes take effect immediately. If you change anything that alters the **features** themselves, bump `FEATURE_VERSION` so stale reference vectors are rejected.
+Weight changes take effect immediately, and the Evaluation tab is the quickest way to see their effect on accuracy. If you change anything that alters the **features** themselves, bump `FEATURE_VERSION` so stale reference vectors are rejected.
 
 ---
 
@@ -370,6 +408,7 @@ Weight changes take effect immediately. If you change anything that alters the *
 - **Single dominant fruit.** The pipeline expects one main fruit (or a tight cluster) per image.
 - **Reference quality matters.** Because the classifier compares against class averages, a small or mislabelled dataset directly lowers accuracy.
 - **Lighting.** Strong colour casts (for example heavy yellow indoor lighting) can shift hue and saturation statistics.
+- **Evaluation can be optimistic.** Evaluating on images that were also used to build the reference vectors inflates accuracy. Use a held-out set for an honest number.
 
 ---
 
@@ -380,4 +419,5 @@ Weight changes take effect immediately. If you change anything that alters the *
 | **Language** | Python |
 | **Image processing** | OpenCV, scikit-image, SciPy |
 | **Numerics / data** | NumPy, pandas |
+| **Evaluation metrics & plots** | scikit-learn (metrics only), Matplotlib |
 | **Front end** | Streamlit |
